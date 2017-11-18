@@ -4,8 +4,5 @@
 ## NPM ##
 node_modules/
 
-## API keys ##
-key
-
 ## Other RC ##
 *.pem
