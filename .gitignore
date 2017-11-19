@@ -8,3 +8,4 @@ node_modules/
 key
 
 ## Other RC ##
+*.pem
