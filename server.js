@@ -31,6 +31,22 @@ admin.initializeApp({
   databaseURL: "https://benkyohr-e00dc.firebaseio.com"
 });
 
+var config = {
+  apiKey: "AIzaSyB_GP8F7hMJmuDDchnlBQqBAiS6dERnTGw",
+  authDomain: "benkyohr-e00dc.firebaseapp.com",
+  databaseURL: "https://benkyohr-e00dc.firebaseio.com",
+  projectId: "benkyohr-e00dc",
+  storageBucket: "",
+  messagingSenderId: "385974337950"
+};
+var firebase = require('firebase');
+
+firebase.initializeApp(config);
+
+// open database
+var database = firebase.database();
+
+
 /*********************Firebase End*****************************/
 
 /***************Socketio connection code**********************/
@@ -52,6 +68,8 @@ ioAsServer.on('connection', function(socketAsServer){
     const fileNameTXT = filePrefix + '.txt';
     const filePathTXT = `./transcribed_files/${fileNameTXT}`;
     //console.log(fileName);
+    // dummy student id
+    const dummyStudentID = 'f;lsjfkjalsdf';
     var writeStream = fs.createWriteStream(filePathWAV);
     stream.pipe(writeStream);
     // when stream of file is completed
@@ -75,11 +93,12 @@ ioAsServer.on('connection', function(socketAsServer){
         fs.createReadStream(filePathFLAC).pipe(socketioStreamToTextServer);
         // listen to the event that fires when text comes back from text server and store the transcribed text
         socketAsClient.on('textserver-transcribebtext', (transcribedTextObj, aknFn)=>{
-          var transcribebtext = transcribedTextObj.transcribedText;
+          var transcribebText = transcribedTextObj.transcribedText;
+          writeAssesssmentDataToFirebase(dummyStudentID, transcribebText);
           // close the text-server text socket by calling the akn (aknowledge) function, see server code
           aknFn(true);
           // store the transcribed text to a file
-          fs.writeFile(filePathTXT, transcribebtext, (err) => {
+          fs.writeFile(filePathTXT, transcribebText, (err) => {
             if (err) {
               console.log(err);
               return;
@@ -96,6 +115,21 @@ ioAsServer.on('connection', function(socketAsServer){
 });
 
 /***************Socketio connection code end**********************/
+
+/***********Write to firebase  **********************************/
+function writeAssesssmentDataToFirebase (studentID, transcribedText) {
+  var updates = {};
+  var studentData = {
+    meta:{
+        name:'Harsh'
+    },
+    transcription:transcribedText
+  };
+  updates['/student/' + studentID + '/assessment4'] = studentData;
+  firebase.database().ref().update(updates);
+}
+
+/**********Write to firebase ends *******************************/
 
 app.use(cors());
 app.use(bodyParser.json()); // <--- Here
