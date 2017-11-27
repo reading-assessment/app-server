@@ -6,4 +6,5 @@ node_modules/
 
 ## Other RC ##
 *.pem
-key
+
+key/
