@@ -4,22 +4,19 @@ var express = require('express');
 var app = express();
 var cors = require('cors');
 var bodyParser = require("body-parser");
-var https = require('https');
+var http = require('http');
 // socket.io-stream for managein binary streams on client and server
 var ss = require('socket.io-stream');
 // shell for managing shell command lines, specifically for sox to convert audio to falc
 var shell = require('shelljs');
 // set the server as a client to send socket to the file to text server
-const URL_TEXT_SERVER = 'https://165.227.174.222:9006';
+const URL_TEXT_SERVER = 'https://sshenableddo.ioakeimidis.eu/benkyo-text-server';
 // client side code for socket.io
 var ioAsClient = require('socket.io-client');
 //required key and cert for https, currently individual key from ioannis, there will be a browser warning for this
-var options = {
-  key: fs.readFileSync('./thesis-selfsignedkey.pem'),
-  cert: fs.readFileSync('./thesis-selfsignedcrt.pem')
-};
+
 var serverPort = 9005;
-var server = https.createServer(options, app);
+var server = http.createServer(app);
 
 /*************************  Firebase Admin  **************************/
 var admin = require("firebase-admin");
@@ -60,7 +57,7 @@ ioAsServer.on('connection', function(socketAsServer){
   ss(socketAsServer).on('client-stream-request', function(stream, objMetaData, aknowledgeFn){
     // node filestream to save file on server filesystem
     var d = new Date();
-    const filePrefix = objMetaData.studentName + 'TT' + d.getTime();
+    const filePrefix = objMetaData.studentName + 'TTTT' + d.getTime();
     const fileNameWAV = filePrefix + '.wav';
     const filePathWAV = `./audio_files/${fileNameWAV}`;
     const fileNameFLAC = filePrefix + '.flac';
@@ -69,7 +66,7 @@ ioAsServer.on('connection', function(socketAsServer){
     const filePathTXT = `./transcribed_files/${fileNameTXT}`;
     //console.log(fileName);
     // dummy student id
-    const dummyStudentID = 'f;lsjfkjalsdf';
+    // const dummyStudentID = 'f;lsjfkjalsdf';
     var writeStream = fs.createWriteStream(filePathWAV);
     stream.pipe(writeStream);
     // when stream of file is completed
@@ -94,7 +91,7 @@ ioAsServer.on('connection', function(socketAsServer){
         // listen to the event that fires when text comes back from text server and store the transcribed text
         socketAsClient.on('textserver-transcribebtext', (transcribedTextObj, aknFn)=>{
           var transcribebText = transcribedTextObj.transcribedText;
-          writeAssesssmentDataToFirebase(dummyStudentID, transcribebText);
+          // writeAssesssmentDataToFirebase(dummyStudentID, transcribebText);
           // close the text-server text socket by calling the akn (aknowledge) function, see server code
           aknFn(true);
           // store the transcribed text to a file
@@ -117,17 +114,17 @@ ioAsServer.on('connection', function(socketAsServer){
 /***************Socketio connection code end**********************/
 
 /***********Write to firebase  **********************************/
-function writeAssesssmentDataToFirebase (studentID, transcribedText) {
-  var updates = {};
-  var studentData = {
-    meta:{
-        name:'Harsh'
-    },
-    transcription:transcribedText
-  };
-  updates['/student/' + studentID + '/assessment4'] = studentData;
-  firebase.database().ref().update(updates);
-}
+// function writeAssesssmentDataToFirebase (studentID, transcribedText) {
+//   var updates = {};
+//   var studentData = {
+//     meta:{
+//         name:'Harsh'
+//     },
+//     transcription:transcribedText
+//   };
+//   updates['/student/' + studentID + '/assessment4'] = studentData;
+//   firebase.database().ref().update(updates);
+// }
 
 /**********Write to firebase ends *******************************/
 
@@ -164,5 +161,5 @@ app.get('/student/sendData', Students.sendTranscribedAssessment);
 
 
 server.listen(serverPort, function(){
-  console.log('HTTPS server up and running at %s port', serverPort);
+  console.log('HTTP server up and running at %s port', serverPort);
 });
