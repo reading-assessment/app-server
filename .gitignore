@@ -6,5 +6,6 @@ node_modules/
 
 ## Other RC ##
 *.pem
-
+*.flac
+*.txt
 key/
