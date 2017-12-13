@@ -5,6 +5,7 @@ var app = express();
 var cors = require('cors');
 var bodyParser = require("body-parser");
 var http = require('http');
+var https = require('https');
 // socket.io-stream for managein binary streams on client and server
 var ss = require('socket.io-stream');
 // shell for managing shell command lines, specifically for sox to convert audio to falc
@@ -29,18 +30,6 @@ firebase.initializeApp({
   databaseURL: "https://benkyohr-e00dc.firebaseio.com"
 });
 
-// ----------Another way to log in to firebase, will not use it here
-// ---------Because it creates multiple logins so it throuws an error
-// var config = {
-//   apiKey: "AIzaSyB_GP8F7hMJmuDDchnlBQqBAiS6dERnTGw",
-//   authDomain: "benkyohr-e00dc.firebaseapp.com",
-//   databaseURL: "https://benkyohr-e00dc.firebaseio.com",
-//   projectId: "benkyohr-e00dc",
-//   storageBucket: "",
-//   messagingSenderId: "385974337950"
-// };
-// firebase.initializeApp(config);
-
 // open database
 var database = firebase.database();
 //--------------------------END Firebase-----------------------------------
@@ -54,13 +43,11 @@ var ioAsServer = require('socket.io')(server);
 
 // on server code we will use nsp instead of ioAsServer
 ioAsServer.on('connection', function(socketAsServer){
-
   console.log('new connection');
-  // socket.io-stream event listening from the client
-  ss(socketAsServer).on('client-stream-request', function(stream, objMetaData, aknowledgeFn){
-    // node filestream to save file on server filesystem
-    var d = new Date();
-    const filePrefix = objMetaData.studentId + 'TTTT' + d.getTime();
+  socketAsServer.on('bucket-stored', function(objData, aFn) {
+    aFn(true);
+    const downloadURL = objData.downloadURL;
+    const filePrefix = objData.filePrefix;
     const fileNameWAV = filePrefix + '.wav';
     const filePathWAV = `./audio_files/${fileNameWAV}`;
     const fileNameFLAC = filePrefix + '.flac';
@@ -68,57 +55,57 @@ ioAsServer.on('connection', function(socketAsServer){
     const fileNameTXT = filePrefix + '.txt';
     const filePathTXT = `./transcribed_files/${fileNameTXT}`;
 
-    var writeStream = fs.createWriteStream(filePathWAV);
-    stream.pipe(writeStream);
-    // when stream of file is completed
-    stream.on('end', ()=>{
-      // close the client stream by calling the aknowledge function, see code on index.html
-      aknowledgeFn(true);
-      // turn the wav file on file system to flac file
-      // the async:false flag tells shell to execute synchronously
-      shell.exec(`sox ${filePathWAV} --channels=1 --bits=16 --rate=16000 ${filePathFLAC} --norm`, {async:false});
-      // remove file from file system
-      shell.rm(filePathWAV);
-      //-----------app-server stream request to text-server--------------
-      var socketioStreamToTextServer = ss.createStream();
-      // the parameters of the connect function are required ton run under https
-      var socketAsClient = ioAsClient.connect(URL_TEXT_SERVER, {secure: true, reconnect: true, rejectUnauthorized : false });
-      // socketio-client requires that we listen to the connect event in order to inittiate anything
-      socketAsClient.on('connect', () =>{
-        // emit the flac file as stream along with the file name
-        ss(socketAsClient).emit('appserver-stream-request', socketioStreamToTextServer, {fileNameFLAC});
-        //fs.createReadStream('maria.flac').pipe(socketioStreamToTextServer);
-        fs.createReadStream(filePathFLAC).pipe(socketioStreamToTextServer);
-        // listen to the event that fires when text comes back from text server and store the transcribed text
-        socketAsClient.on('textserver-transcribebtext', (transcribedTextObj, aknFn)=>{
-          var transcribebText = transcribedTextObj.transcribedText;
-          var publicBucketURL = transcribedTextObj.publicBucketURL;
-          var assignmentId = objMetaData.assignmentId;
-          var assessmentId = objMetaData.assessmentId;
-          var classroomId = objMetaData.classroomId;
-          var studentId = objMetaData.studentId;
-          firebase.database().ref(`assessments/${assessmentId}/Text`).once('value')
-          .then(function(snapshot){
-            if (snapshot.val()) {
-              var originalText = snapshot.val().long;
-              var scoreFromCompareWord = compareWordByWord(originalText, transcribebText);
-              writeAssesssmentDataToFirebase(studentId, assignmentId, publicBucketURL, transcribebText, scoreFromCompareWord);
+    const assignmentId = objData.assignmentId;
+    const assessmentId = objData.assessmentId;
+    const classroomId = objData.classroomId;
+    const studentId = objData.user_cred.uid;
+    
+    var request = https.get(downloadURL, function(res){
+      var writeStream = fs.createWriteStream(filePathWAV);
+      var stream = res.pipe(writeStream);
+      stream.on('finish', function(){
+        console.log('wav file on server');
+        shell.exec(`sox ${filePathWAV} --channels=1 --bits=16 --rate=16000 ${filePathFLAC} --norm`, {async:false});
+        shell.rm(filePathWAV);
+        //-----------app-server stream request to text-server--------------
+        var socketioStreamToTextServer = ss.createStream();
+        // the parameters of the connect function are required ton run under https
+        // they also run under http, keeping them for reference
+        var socketAsClient = ioAsClient.connect(URL_TEXT_SERVER, {secure: true, reconnect: true, rejectUnauthorized : false });
+        // socketio-client requires that we listen to the connect event in order to initiate anything
+        socketAsClient.on('connect', () => {
+          // emit the flac file as stream along with the file name
+          ss(socketAsClient).emit('appserver-stream-request', socketioStreamToTextServer, {fileNameFLAC}, (confirmation) =>{
+            if (confirmation) {
+              socketAsClient.disconnect(URL_TEXT_SERVER);
             }
           });
-          // close the text-server text socket by calling the akn (aknowledge) function, see server code
-          aknFn(true);
-          // store the transcribed text to a file
-          fs.writeFile(filePathTXT, transcribebText, (err) => {
-            if (err) {
-              console.log(err);
-              return;
-            }
-            console.log('file ' + fileNameTXT + ' written to transcribed_files directory');
+          fs.createReadStream(filePathFLAC).pipe(socketioStreamToTextServer);
+          // listen to the event that fires when text comes back from text server and store the transcribed text
+          socketAsClient.on('textserver-transcribebtext', (transcribedTextObj, aknFn)=>{
+            const transcribebText = transcribedTextObj.transcribedText;
+            const publicBucketURL = transcribedTextObj.publicBucketURL;
+            firebase.database().ref(`assessments/${assessmentId}/Text`).once('value')
+            .then(function(snapshot){
+              if (snapshot.val()) {
+                var originalText = snapshot.val().long;
+                var scoreFromCompareWord = compareWordByWord(originalText, transcribebText);
+                writeAssesssmentDataToFirebase(studentId, assignmentId, publicBucketURL, transcribebText, scoreFromCompareWord);
+              }
+            });
+            // close the text-server text socket by calling the akn (aknowledge) function, see server code
+            aknFn(true);
+            // store the transcribed text to a file
+            fs.writeFile(filePathTXT, transcribebText, (err) => {
+              if (err) {
+                console.log(err);
+                return;
+              }
+              console.log('file ' + fileNameTXT + ' written to transcribed_files directory');
+            });
           });
         });
       });
-
-      //------------------------------------------------------------------
     });
   });
 });
