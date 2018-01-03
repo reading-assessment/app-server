@@ -8,7 +8,7 @@ var http = require('http');
 var https = require('https');
 // socket.io-stream for managein binary streams on client and server
 var ss = require('socket.io-stream');
-// shell for managing shell command lines, specifically for sox to convert audio to falc
+// shell for managing shell command lines, specifically for sox to convert audio to flac
 var shell = require('shelljs');
 // set the server as a client to send socket to the file to text server
 const URL_TEXT_SERVER = 'http://localhost:9006';
@@ -38,11 +38,11 @@ var database = firebase.database();
 //socket.io requirement and initialization
 var ioAsServer = require('socket.io')(server);
 // !!! Attention!!! ---> on the server we need to provide the nsp variable to connect to specific namespace of socketio, 
-// as socketsio treats everything after the root domain of SERVER_URL on index.html as a namespace
-//var nsp = ioAsServer.of('/benkyo-api-server');
+// as socketsio treats everything after the root domain of SERVER_URL as a namespace
+var nsp = ioAsServer.of('/benkyo-api-server');
 
 // on server code we will use nsp instead of ioAsServer
-ioAsServer.on('connection', function(socketAsServer){
+nsp.on('connection', function(socketAsServer){
   console.log('new connection');
   socketAsServer.on('bucket-stored', function(objData, aFn) {
     aFn(true);
@@ -59,7 +59,8 @@ ioAsServer.on('connection', function(socketAsServer){
     const assessmentId = objData.assessmentId;
     const classroomId = objData.classroomId;
     const studentId = objData.user_cred.uid;
-    
+    const numOfRecordingSeconds = objData.wavSize/1024/1536*8;
+
     var request = https.get(downloadURL, function(res){
       var writeStream = fs.createWriteStream(filePathWAV);
       var stream = res.pipe(writeStream);
@@ -82,26 +83,37 @@ ioAsServer.on('connection', function(socketAsServer){
           });
           fs.createReadStream(filePathFLAC).pipe(socketioStreamToTextServer);
           // listen to the event that fires when text comes back from text server and store the transcribed text
-          socketAsClient.on('textserver-transcribebtext', (transcribedTextObj, aknFn)=>{
-            const transcribebText = transcribedTextObj.transcribedText;
+          socketAsClient.on('textserver-transcribedtext', (transcribedTextObj, aknFn)=>{
+            const transcribedText = transcribedTextObj.transcribedText;
             const publicBucketURL = transcribedTextObj.publicBucketURL;
+            var numOfTranscribedWords = transcribedText.split(' ').length;
+            var transcribedWordsPerMinute = Math.ceil(numOfTranscribedWords*60/numOfRecordingSeconds);
+            console.log(transcribedWordsPerMinute);
             firebase.database().ref(`assessments/${assessmentId}/Text`).once('value')
             .then(function(snapshot){
               if (snapshot.val()) {
                 var originalText = snapshot.val().long;
-                var scoreFromCompareWord = compareWordByWord(originalText, transcribebText);
-                writeAssesssmentDataToFirebase(studentId, assignmentId, publicBucketURL, transcribebText, scoreFromCompareWord);
+                var scoreFromCompareWord = compareWordByWord(originalText, transcribedText);
+                writeAssesssmentDataToFirebase(studentId, assignmentId, publicBucketURL, transcribedText, scoreFromCompareWord, transcribedWordsPerMinute);
               }
             });
             // close the text-server text socket by calling the akn (aknowledge) function, see server code
             aknFn(true);
             // store the transcribed text to a file
-            fs.writeFile(filePathTXT, transcribebText, (err) => {
+            fs.writeFile(filePathTXT, transcribedText, (err) => {
               if (err) {
                 console.log(err);
                 return;
               }
               console.log('file ' + fileNameTXT + ' written to transcribed_files directory');
+            });
+            var audioRef = firebase.storage().bucket('benkyohr-e00dc.appspot.com').file(`audio/${fileNameWAV}`);
+            // Delete the initial wav file from the google bucket
+            audioRef.delete().then(function() {
+              console.log('wav file deleted form bucket');
+            }).catch(function(error) {
+
+              console.log(fileNameWAV, error);
             });
           });
         });
@@ -113,14 +125,16 @@ ioAsServer.on('connection', function(socketAsServer){
 //-------------END Socketio -----------------------------------------------
 
 //-----------------------BEGIN Write to firebase-------------------------------
-function writeAssesssmentDataToFirebase (studentId, assignmentId, publicBucketURL, transcribebText, scoreFromCompareWord) {
+function writeAssesssmentDataToFirebase (studentId, assignmentId, publicBucketURL, transcribedText, scoreFromCompareWord, transcribedWordsPerMinute) {
   var varObject = {
-    transcribedText: transcribebText,
+    transcribedText,
     publicFlacURL: publicBucketURL,
-    scoreFromCompareWord: scoreFromCompareWord,
+    scoreFromCompareWord,
+    transcribedWordsPerMinute,
     status: 'done'
   };
   firebase.database().ref(`student/${studentId}/assignment/${assignmentId}`).update(varObject);
+  firebase.database().ref(`assignment/${assignmentId}`).update({results:varObject});
 }
 
 //------------------------------END Write to firebase ---------------------------
