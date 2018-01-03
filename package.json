@@ -4,6 +4,7 @@
   "description": "Reading Assessment",
   "main": "index.js",
   "dependencies": {
+    "@firebase/storage": "^0.1.4",
     "axios": "^0.16.2",
     "body-parser": "^1.18.2",
     "cors": "^2.8.4",
