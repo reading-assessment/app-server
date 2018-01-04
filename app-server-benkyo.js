@@ -45,7 +45,6 @@ var nsp = ioAsServer.of('/benkyo-api-server');
 nsp.on('connection', function(socketAsServer){
   console.log('new connection');
   socketAsServer.on('bucket-stored', function(objData, aFn) {
-    aFn(true);
     const downloadURL = objData.downloadURL;
     const filePrefix = objData.filePrefix;
     const fileNameWAV = filePrefix + '.wav';
@@ -60,8 +59,10 @@ nsp.on('connection', function(socketAsServer){
     const classroomId = objData.classroomId;
     const studentId = objData.user_cred.uid;
     const numOfRecordingSeconds = objData.wavSize/1024/1536*8;
+    const timeStamp = new Date().getTime();
 
     var request = https.get(downloadURL, function(res){
+      aFn(true);
       var writeStream = fs.createWriteStream(filePathWAV);
       var stream = res.pipe(writeStream);
       stream.on('finish', function(){
@@ -94,7 +95,7 @@ nsp.on('connection', function(socketAsServer){
               if (snapshot.val()) {
                 var originalText = snapshot.val().long;
                 var scoreFromCompareWord = compareWordByWord(originalText, transcribedText);
-                writeAssesssmentDataToFirebase(studentId, assignmentId, publicBucketURL, transcribedText, scoreFromCompareWord, transcribedWordsPerMinute);
+                writeAssesssmentDataToFirebase(studentId, assignmentId, publicBucketURL, transcribedText, scoreFromCompareWord, transcribedWordsPerMinute, numOfRecordingSeconds, timeStamp);
               }
             });
             // close the text-server text socket by calling the akn (aknowledge) function, see server code
@@ -111,6 +112,7 @@ nsp.on('connection', function(socketAsServer){
             // Delete the initial wav file from the google bucket
             audioRef.delete().then(function() {
               console.log('wav file deleted form bucket');
+              
             }).catch(function(error) {
 
               console.log(fileNameWAV, error);
@@ -125,12 +127,14 @@ nsp.on('connection', function(socketAsServer){
 //-------------END Socketio -----------------------------------------------
 
 //-----------------------BEGIN Write to firebase-------------------------------
-function writeAssesssmentDataToFirebase (studentId, assignmentId, publicBucketURL, transcribedText, scoreFromCompareWord, transcribedWordsPerMinute) {
+function writeAssesssmentDataToFirebase (studentId, assignmentId, publicBucketURL, transcribedText, scoreFromCompareWord, transcribedWordsPerMinute, numOfRecordingSeconds, timeStamp) {
   var varObject = {
     transcribedText,
     publicFlacURL: publicBucketURL,
     scoreFromCompareWord,
     transcribedWordsPerMinute,
+    numOfRecordingSeconds,
+    timeStamp,
     status: 'done'
   };
   firebase.database().ref(`student/${studentId}/assignment/${assignmentId}`).update(varObject);
