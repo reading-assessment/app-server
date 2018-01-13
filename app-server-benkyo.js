@@ -6,6 +6,7 @@ var cors = require('cors');
 var bodyParser = require("body-parser");
 var http = require('http');
 var https = require('https');
+
 // socket.io-stream for managein binary streams on client and server
 var ss = require('socket.io-stream');
 // shell for managing shell command lines, specifically for sox to convert audio to flac
@@ -14,7 +15,7 @@ var shell = require('shelljs');
 const URL_TEXT_SERVER = 'http://localhost:9006';
 // client side code for socket.io
 var ioAsClient = require('socket.io-client');
-//required key and cert for https, currently individual key from ioannis, there will be a browser warning for this
+var FuzzySet = require('fuzzyset.js');
 
 var serverPort = 9005;
 var server = http.createServer(app);
@@ -93,9 +94,15 @@ nsp.on('connection', function(socketAsServer){
             firebase.database().ref(`assessments/${assessmentId}/Text`).once('value')
             .then(function(snapshot){
               if (snapshot.val()) {
-                var originalText = snapshot.val().long;
+                var originalText = snapshot.val().long;          
+                var a = FuzzySet([originalText]);
+                if (a.get(transcribedText)) {
+                  var scoreFromFuzzySet = a.get(transcribedText)[0][0];
+                } else {
+                  var scoreFromFuzzySet = null;
+                }
                 var scoreFromCompareWord = compareWordByWord(originalText, transcribedText);
-                writeAssesssmentDataToFirebase(studentId, assignmentId, publicBucketURL, transcribedText, scoreFromCompareWord, transcribedWordsPerMinute, numOfRecordingSeconds, timeStamp);
+                writeAssesssmentDataToFirebase(studentId, assignmentId, publicBucketURL, transcribedText, scoreFromCompareWord, transcribedWordsPerMinute, numOfRecordingSeconds, timeStamp, scoreFromFuzzySet);
               }
             });
             // close the text-server text socket by calling the akn (aknowledge) function, see server code
@@ -127,11 +134,12 @@ nsp.on('connection', function(socketAsServer){
 //-------------END Socketio -----------------------------------------------
 
 //-----------------------BEGIN Write to firebase-------------------------------
-function writeAssesssmentDataToFirebase (studentId, assignmentId, publicBucketURL, transcribedText, scoreFromCompareWord, transcribedWordsPerMinute, numOfRecordingSeconds, timeStamp) {
+function writeAssesssmentDataToFirebase (studentId, assignmentId, publicBucketURL, transcribedText, scoreFromCompareWord, transcribedWordsPerMinute, numOfRecordingSeconds, timeStamp, scoreFromFuzzySet) {
   var varObject = {
     transcribedText,
     publicFlacURL: publicBucketURL,
     scoreFromCompareWord,
+    scoreFromFuzzySet,
     transcribedWordsPerMinute,
     numOfRecordingSeconds,
     timeStamp,
